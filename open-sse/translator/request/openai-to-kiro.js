@@ -234,7 +234,7 @@ function convertMessages(messages, model) {
   // Clean up history for Kiro API compatibility
   history.forEach(item => {
     if (item.userInputMessage?.userInputMessageContext &&
-        Object.keys(item.userInputMessage.userInputMessageContext).length === 0) {
+      Object.keys(item.userInputMessage.userInputMessageContext).length === 0) {
       delete item.userInputMessage.userInputMessageContext;
     }
     if (item.userInputMessage && !item.userInputMessage.modelId) {
@@ -249,8 +249,8 @@ function convertMessages(messages, model) {
   for (let i = 0; i < history.length; i++) {
     const current = history[i];
     if (current.userInputMessage &&
-        mergedHistory.length > 0 &&
-        mergedHistory[mergedHistory.length - 1].userInputMessage) {
+      mergedHistory.length > 0 &&
+      mergedHistory[mergedHistory.length - 1].userInputMessage) {
       const prev = mergedHistory[mergedHistory.length - 1];
       prev.userInputMessage.content += "\n\n" + current.userInputMessage.content;
       // Merge context: combine toolResults, images, etc.
@@ -352,7 +352,13 @@ export function openaiToKiroRequest(model, body, stream, credentials) {
   }
   const systemPrompt = systemPromptParts.filter(Boolean).join("\n\n");
   const currentTimeContext = `[Context: Current time is ${timestamp}]`;
-  const contentPrefix = [systemPrompt, currentTimeContext].filter(Boolean).join("\n\n");
+  // const contentPrefix = [systemPrompt, currentTimeContext].filter(Boolean).join("\n\n");
+
+  // contentPrefix is frozen into msg0 for cacheability (must be stable across
+  // turns). currentTimeContext is volatile per-turn and belongs in
+  // currentContentPrefix only — joining it into contentPrefix made msg0 carry
+  // a fresh timestamp every turn, defeating session-cache stability (#2989).
+  const contentPrefix = systemPrompt;
 
   const sessionIdentity = resolveSessionIdentity({ headers: credentials?.rawHeaders, body, connectionId: credentials?.connectionId, scope: "kiro" });
   const conversationId = sessionIdentity.sessionId;
@@ -420,7 +426,7 @@ export function openaiToKiroRequest(model, body, stream, credentials) {
   if (profileArn) {
     payload.profileArn = profileArn;
   }
-  if (systemPrompt) payload.systemPrompt = systemPrompt;
+  // if (systemPrompt) payload.systemPrompt = systemPrompt;
   if (additionalModelRequestFields) {
     payload.additionalModelRequestFields = additionalModelRequestFields;
   }
