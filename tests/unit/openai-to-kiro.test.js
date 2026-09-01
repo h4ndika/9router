@@ -11,7 +11,18 @@ import { openaiToKiroRequest } from "../../open-sse/translator/request/openai-to
 
 const contentOf = (result) =>
   result.conversationState.currentMessage.userInputMessage.content;
-const systemPromptOf = (result) => result.systemPrompt || "";
+// const systemPromptOf = (result) => result.systemPrompt || "";
+
+const systemPromptOf = (result) => {
+  const top = result.systemPrompt || "";
+  if (top) return top;
+  const history = result.conversationState?.history || [];
+  for (const msg of history) {
+    const c = msg?.userInputMessage?.content || "";
+    if (c) return c;
+  }
+  return "";
+};
 
 describe("openaiToKiroRequest", () => {
   describe("basic message conversion", () => {
@@ -569,11 +580,16 @@ describe("openaiToKiroRequest", () => {
     });
 
     it("keeps top-level systemPrompt stable across turns", () => {
+      const credentials = {
+        connectionId: "kiro-account-stable-prefix",
+        rawHeaders: { "x-session-id": "hermes-session-stable-prefix" },
+      };
       const first = openaiToKiroRequest(
         "claude-sonnet-4.6-thinking",
         { messages: [{ role: "user", content: "first" }] },
         true,
-        {}
+        // {}
+        credentials
       );
       const second = openaiToKiroRequest(
         "claude-sonnet-4.6-thinking",
@@ -582,8 +598,14 @@ describe("openaiToKiroRequest", () => {
         {}
       );
 
-      expect(first.systemPrompt).toBe(second.systemPrompt);
-      expect(first.systemPrompt).not.toContain("Current time");
+      // expect(first.systemPrompt).toBe(second.systemPrompt);
+      // expect(first.systemPrompt).not.toContain("Current time");
+       expect(first.systemPrompt).toBeUndefined();
+      const firstHistoryFirstUser = first.conversationState.history[0]?.userInputMessage?.content || "";
+      const secondHistoryFirstUser = second.conversationState.history[0]?.userInputMessage?.content || "";
+      expect(firstHistoryFirstUser).toBe(secondHistoryFirstUser);
+      expect(firstHistoryFirstUser).toContain("<max_thinking_length>16000</max_thinking_length>");
+      expect(firstHistoryFirstUser).not.toContain("Current time");
       expect(first.conversationState.currentMessage.userInputMessage.content).toContain("Current time");
     });
 
@@ -608,11 +630,15 @@ describe("openaiToKiroRequest", () => {
       expect(second.conversationState.conversationId).toBe("hermes-session-openai-replay");
       expect(second.conversationState.agentContinuationId).toBe(first.conversationState.agentContinuationId);
       expect(second.conversationState.history[0].userInputMessage.content).toBe(
-        first.conversationState.currentMessage.userInputMessage.content
+        // first.conversationState.currentMessage.userInputMessage.content
+        first.conversationState.history[0].userInputMessage.content
       );
       expect(second.conversationState.history[0].userInputMessage.modelId).toBe("claude-sonnet-4.6");
       expect(second.conversationState.currentMessage.userInputMessage.content).toContain("Current time");
       expect(second.conversationState.currentMessage.userInputMessage.content).toContain("second turn");
+       expect(second.conversationState.currentMessage.userInputMessage.content).not.toContain(
+        first.conversationState.history[0].userInputMessage.content
+      );
     });
 
     it("does not inject thinking prefix for reasoning_effort none", () => {

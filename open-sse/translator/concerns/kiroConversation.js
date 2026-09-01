@@ -156,12 +156,28 @@ function normalizeTurns(history, currentMessage, modelId) {
       ? { userInputMessage: clone(raw.userInputMessage) }
       : { assistantResponseMessage: clone(raw.assistantResponseMessage) };
     const previous = turns[turns.length - 1];
-    if (turn.userInputMessage && previous?.userInputMessage) {
+    // if (turn.userInputMessage && previous?.userInputMessage) {
+    const previousIsFrozen = !!previous?.userInputMessage?.userInputMessageContext?._frozenMsg0;
+    if (turn.userInputMessage && previous?.userInputMessage && !previousIsFrozen) {
       mergeUser(previous.userInputMessage, turn.userInputMessage);
     } else if (turn.assistantResponseMessage && previous?.assistantResponseMessage) {
       mergeAssistant(previous.assistantResponseMessage, turn.assistantResponseMessage);
     } else {
       turns.push(turn);
+    }
+
+    // Insert a placeholder assistant turn between consecutive user turns so the
+    // conversation stays user→assistant→user alternated (required by Kiro upstream
+    // and validateKiroConversation). Frozen msg0 + currentMessage produces two
+    // consecutive users (#2989), so splice a "..." assistant between them.
+    for (let i = 1; i < turns.length; i++) {
+      const prev = turns[i - 1];
+      const cur = turns[i];
+      if (prev?.userInputMessage && cur?.userInputMessage) {
+        const placeholder = { assistantResponseMessage: { content: "..." } };
+        turns.splice(i, 0, placeholder);
+        i++;
+      }
     }
   }
 

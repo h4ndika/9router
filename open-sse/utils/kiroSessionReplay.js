@@ -113,7 +113,15 @@ export function applyKiroSessionReplay({
     nextCurrent = prefixUserMessage(baseCurrent, currentContentPrefix, modelId);
   } else {
     sessionStart = prefixUserMessage(baseCurrent, contentPrefix, modelId);
-    nextCurrent = clone(sessionStart);
+    // nextCurrent = clone(sessionStart);
+    baseHistory.unshift(clone(sessionStart));
+    // Mark msg0 as frozen so normalizeTurns() does not merge it into the
+    // current turn (which would duplicate user content + corrupt msg0).
+    if (baseHistory[0]?.userInputMessage) {
+      baseHistory[0].userInputMessage.userInputMessageContext ||= {};
+      baseHistory[0].userInputMessage.userInputMessageContext._frozenMsg0 = true;
+    }
+    nextCurrent = prefixUserMessage(baseCurrent, currentContentPrefix, modelId);
   }
 
   if (conversationId) {
