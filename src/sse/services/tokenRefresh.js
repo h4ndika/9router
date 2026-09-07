@@ -124,25 +124,37 @@ function needsProjectId(provider) {
 function _refreshProjectId(provider, connectionId, accessToken) {
   if (!needsProjectId(provider) || !connectionId || !accessToken) return;
 
-  // Evict the stale cached entry so getProjectIdForConnection does a real fetch
+  // Invalidate the stale cached entry so getProjectIdForConnection does a real fetch
   invalidateProjectId(connectionId);
 
-  getProjectIdForConnection(connectionId, accessToken)
-    .then((projectId) => {
-      if (!projectId) return;
-      updateProviderCredentials(connectionId, { projectId }).catch((err) => {
-        log.debug("TOKEN_REFRESH", "Failed to persist refreshed projectId", {
+  // Lazy resolution: Do not eagerly trigger onboardUser during background token refresh.
+  // Eagerly fetching projectId across multiple accounts simultaneously triggers Google Cloud anti-abuse / rate limits.
+  // Runtime handlers (e.g. chat handler) will lazily call getProjectIdForConnection() on demand.
+  if (process.env.EAGER_PROJECT_ID_REFRESH === "true") {
+    getProjectIdForConnection(connectionId, accessToken, provider)
+      .then((projectId) => {
+        if (!projectId) return;
+        updateProviderCredentials(connectionId, { projectId }).catch((err) => {
+          log.debug("TOKEN_REFRESH", "Failed to persist refreshed projectId", {
+            connectionId,
+            error: err?.message ?? err,
+          });
+        });
+      })
+      .catch((err) => {
+        log.debug("TOKEN_REFRESH", "Failed to fetch projectId after token refresh", {
           connectionId,
           error: err?.message ?? err,
         });
       });
-    })
-    .catch((err) => {
-      log.debug("TOKEN_REFRESH", "Failed to fetch projectId after token refresh", {
-        connectionId,
-        error: err?.message ?? err,
-      });
-    });
+    // })
+    // .catch((err) => {
+    //   log.debug("TOKEN_REFRESH", "Failed to fetch projectId after token refresh", {
+    //     connectionId,
+    //     error: err?.message ?? err,
+    //   });
+    // });
+  }
 }
 
 // ─── Local-specific: persist credentials to localDb ──────────────────────────
@@ -159,11 +171,11 @@ export async function updateProviderCredentials(connectionId, newCredentials) {
   try {
     const updates = {};
 
-    if (newCredentials.accessToken)         updates.accessToken  = newCredentials.accessToken;
-    if (newCredentials.refreshToken)        updates.refreshToken = newCredentials.refreshToken;
-    if (newCredentials.idToken)             updates.idToken = newCredentials.idToken;
-    if (newCredentials.lastRefreshAt)       updates.lastRefreshAt = newCredentials.lastRefreshAt;
-    if (newCredentials.expiresAt)           updates.expiresAt = newCredentials.expiresAt;
+    if (newCredentials.accessToken) updates.accessToken = newCredentials.accessToken;
+    if (newCredentials.refreshToken) updates.refreshToken = newCredentials.refreshToken;
+    if (newCredentials.idToken) updates.idToken = newCredentials.idToken;
+    if (newCredentials.lastRefreshAt) updates.lastRefreshAt = newCredentials.lastRefreshAt;
+    if (newCredentials.expiresAt) updates.expiresAt = newCredentials.expiresAt;
     if (newCredentials.expiresIn) {
       updates.expiresAt = toExpiresAt(newCredentials.expiresIn);
       updates.expiresIn = newCredentials.expiresIn;
@@ -187,7 +199,7 @@ export async function updateProviderCredentials(connectionId, newCredentials) {
         ...(newCredentials.copilotTokenExpiresAt ? { copilotTokenExpiresAt: newCredentials.copilotTokenExpiresAt } : {}),
       };
     }
-    if (newCredentials.projectId)            updates.projectId = newCredentials.projectId;
+    if (newCredentials.projectId) updates.projectId = newCredentials.projectId;
 
     const result = await updateProviderConnection(connectionId, updates);
     log.info("TOKEN_REFRESH", "Credentials updated in localDb", {
@@ -269,8 +281,8 @@ export async function checkAndRefreshToken(provider, credentials, options = {}) 
     const copilotExpiresAt = creds.providerSpecificData?.copilotTokenExpiresAt
       ? creds.providerSpecificData.copilotTokenExpiresAt * 1000
       : 0;
-    const now              = Date.now();
-    const remaining        = copilotExpiresAt - now;
+    const now = Date.now();
+    const remaining = copilotExpiresAt - now;
 
     if (!copilotToken || remaining < TOKEN_EXPIRY_BUFFER_MS) {
       log.info("TOKEN_REFRESH", "Copilot token expiring soon or missing, refreshing proactively", {
@@ -282,7 +294,7 @@ export async function checkAndRefreshToken(provider, credentials, options = {}) 
       if (copilotTokenResult) {
         const updatedSpecific = {
           ...creds.providerSpecificData,
-          copilotToken:          copilotTokenResult.token,
+          copilotToken: copilotTokenResult.token,
           copilotTokenExpiresAt: copilotTokenResult.expiresAt,
         };
 
@@ -318,7 +330,7 @@ export async function refreshGitHubAndCopilotTokens(credentials) {
   return {
     ...newGitHubCreds,
     providerSpecificData: {
-      copilotToken:          copilotToken.token,
+      copilotToken: copilotToken.token,
       copilotTokenExpiresAt: copilotToken.expiresAt,
     },
   };

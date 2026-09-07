@@ -104,7 +104,7 @@ export async function getProjectIdForConnection(connectionId, accessToken, provi
         try {
             const projectId = await fetchProjectId(accessToken, controller.signal, provider);
             if (projectId) {
-                projectIdCache.set(connectionId, {projectId, fetchedAt: Date.now()});
+                projectIdCache.set(connectionId, { projectId, fetchedAt: Date.now() });
                 return projectId;
             }
             console.warn("[ProjectId] could not fetch projectId for connection", connectionId.slice(0, 8));
@@ -117,7 +117,7 @@ export async function getProjectIdForConnection(connectionId, accessToken, provi
         }
     })();
 
-    pendingFetches.set(connectionId, {promise, controller, startedAt: Date.now()});
+    pendingFetches.set(connectionId, { promise, controller, startedAt: Date.now() });
     return promise;
 }
 
@@ -203,7 +203,9 @@ async function onboardUser(accessToken, tierID, externalSignal, endpoints, provi
 
     const reqBody = { tierId: tierID, metadata: LOAD_CODE_ASSIST_METADATA };
     const headers = provider === "antigravity" ? ANTIGRAVITY_LOAD_CODE_ASSIST_HEADERS : LOAD_CODE_ASSIST_HEADERS;
-    const MAX_ATTEMPTS = 5;
+    // const MAX_ATTEMPTS = 5;
+    const MAX_ATTEMPTS = Number(process.env.ONBOARD_MAX_ATTEMPTS) || 2;
+    const BASE_RETRY_DELAY_MS = Number(process.env.ONBOARD_RETRY_DELAY_MS) || 12_000;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // Bail out immediately if the connection was removed
@@ -241,9 +243,11 @@ async function onboardUser(accessToken, tierID, externalSignal, endpoints, provi
                 throw new Error("onboardUser done but no project_id in response");
             }
 
-            // Server not done yet – wait and retry
+            // Server not done yet – wait and retry with jitter
+            const jitter = Math.floor(Math.random() * 5000);
             console.log(`[ProjectId] Onboard attempt ${attempt}/${MAX_ATTEMPTS}: not done yet, waiting...`);
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, BASE_RETRY_DELAY_MS + jitter));
 
         } catch (error) {
             clearTimeout(timeoutId);
@@ -256,9 +260,11 @@ async function onboardUser(accessToken, tierID, externalSignal, endpoints, provi
                 console.warn(`[ProjectId] onboardUser failed after ${MAX_ATTEMPTS} attempts: ${error.message}`);
                 return null;
             }
-            // Continue to next attempt instead of throwing (which would skip remaining retries)
+            // Wait with jitter before retrying
+            const jitter = Math.floor(Math.random() * 5000);
             console.warn(`[ProjectId] onboardUser attempt ${attempt} failed: ${error.message}, retrying...`);
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, BASE_RETRY_DELAY_MS + jitter));
         } finally {
             clearTimeout(timeoutId);
             externalSignal?.removeEventListener("abort", forwardAbort);
